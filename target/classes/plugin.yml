@@ -1,0 +1,9 @@
+name: GuildQuest
+version: '1.0'
+main: ua.striker.guildquest.GuildQuest
+api-version: '1.21'
+depend: [PlaceholderAPI]
+commands:
+  guildquest:
+    description: Головна команда Гільдії Пригод
+    aliases: [gq, guild]
