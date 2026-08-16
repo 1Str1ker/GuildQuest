@@ -1,6 +1,7 @@
 package ua.striker.guildquest.listeners;
 
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -14,15 +15,15 @@ public class PlayerConnectionListener implements Listener {
         this.plugin = plugin;
     }
 
-    @EventHandler
+    // Використовуємо NORMAL, оскільки це стандартне фонове завантаження
+    @EventHandler(priority = EventPriority.NORMAL)
     public void onPlayerJoin(PlayerJoinEvent event) {
-        // Завантажуємо дані гравця при вході
-        plugin.getPlayerManager().loadPlayer(event.getPlayer());
+        plugin.getPlayerManager().loadPlayer(event.getPlayer().getUniqueId());
     }
 
-    @EventHandler
+    // Встановлюємо HIGH, щоб збереження відбулося навіть якщо інший плагін "кікнув" гравця
+    @EventHandler(priority = EventPriority.HIGH)
     public void onPlayerQuit(PlayerQuitEvent event) {
-        // Зберігаємо дані гравця та видаляємо з пам'яті при виході
         plugin.getPlayerManager().savePlayerAndRemove(event.getPlayer().getUniqueId());
     }
 }

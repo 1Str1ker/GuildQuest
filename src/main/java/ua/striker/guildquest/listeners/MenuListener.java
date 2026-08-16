@@ -3,10 +3,10 @@ package ua.striker.guildquest.listeners;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.plugin.java.JavaPlugin;
 import ua.striker.guildquest.GuildQuest;
 import ua.striker.guildquest.menus.*;
 import ua.striker.guildquest.models.Quest;
@@ -18,11 +18,17 @@ import java.util.UUID;
 
 public class MenuListener implements Listener {
 
+    private final GuildQuest plugin;
     private final Map<UUID, Long> refreshCooldowns = new HashMap<>();
 
-    @EventHandler
+    // Передаємо плагін один раз через конструктор для максимальної оптимізації
+    public MenuListener(GuildQuest plugin) {
+        this.plugin = plugin;
+    }
+
+    // HIGH пріоритет гарантує, що інвентар клікнеться, навіть якщо якийсь інший плагін спробує його скасувати
+    @EventHandler(priority = EventPriority.HIGH)
     public void onInventoryClick(InventoryClickEvent event) {
-        GuildQuest plugin = JavaPlugin.getPlugin(GuildQuest.class);
         Player player = (Player) event.getWhoClicked();
         
         ItemStack clickedItem = event.getCurrentItem();
@@ -32,7 +38,6 @@ public class MenuListener implements Listener {
         if (event.getInventory().getHolder() instanceof QuestBoardMenu) {
             event.setCancelled(true);
 
-            // Читаємо динамічні слоти з конфігу
             int fameSlot = plugin.getMenuConfigManager().getItemSlot("quest-board", "hall-of-fame");
             int refreshSlot = plugin.getMenuConfigManager().getItemSlot("quest-board", "refresh");
             int createSlot = plugin.getMenuConfigManager().getItemSlot("quest-board", "create-quest");
@@ -165,7 +170,7 @@ public class MenuListener implements Listener {
                 case 14 -> currentAmount += 1;
                 case 15 -> currentAmount += 10;
                 case 16 -> currentAmount += 64;
-                case 22 -> { // Підтвердження
+                case 22 -> {
                     player.closeInventory();
                     
                     double commPercent = plugin.getConfigManager().getCommissionPercent();
@@ -193,7 +198,6 @@ public class MenuListener implements Listener {
         else if (event.getInventory().getHolder() instanceof QuestConfirmMenu menu) {
             event.setCancelled(true);
             
-            // Читаємо слоти з конфігу
             int acceptSlot = plugin.getMenuConfigManager().getItemSlot("quest-confirm", "accept");
             int cancelSlot = plugin.getMenuConfigManager().getItemSlot("quest-confirm", "cancel");
 
