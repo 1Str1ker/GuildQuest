@@ -1,0 +1,52 @@
+# ==========================================
+#       GuildQuest - Налаштування Меню
+# ==========================================
+
+quest-board:
+  title: "&8⚔ Дошка оголошень"
+  size: 54
+  items:
+    hall-of-fame:
+      slot: 47
+      material: GOLDEN_APPLE
+      name: "&6🏆 Зал Слави"
+      lore:
+        - "&7Переглянути найкращих гравців"
+        - "&7нашої гільдії."
+    refresh:
+      slot: 48
+      material: CLOCK
+      name: "&e🔄 Оновити дошку"
+      lore:
+        - "&7Натисніть, щоб завантажити"
+        - "&7нові контракти з бази."
+    create-quest:
+      slot: 49
+      material: WRITABLE_BOOK
+      name: "&a+ Створити замовлення"
+      lore:
+        - "&7Натисніть, щоб додати"
+        - "&7своє завдання на дошку."
+    active-quests:
+      slot: 50
+      material: COMPASS
+      name: "&bМої активні контракти"
+      lore: []
+
+quest-confirm:
+  title: "&8Прийняти контракт #%id%?"
+  size: 27
+  items:
+    accept:
+      slot: 11
+      material: GREEN_WOOL
+      name: "&a✔ ПРИЙНЯТИ"
+      lore:
+        - "&7Ви зобов'язуєтесь виконати"
+        - "&7це замовлення."
+    cancel:
+      slot: 15
+      material: RED_WOOL
+      name: "&c✖ СКАСУВАТИ"
+      lore:
+        - "&7Повернутися до дошки."

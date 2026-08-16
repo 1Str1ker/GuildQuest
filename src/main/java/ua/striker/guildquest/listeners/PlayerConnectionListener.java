@@ -16,13 +16,13 @@ public class PlayerConnectionListener implements Listener {
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
-        // Завантажуємо гравця, коли він заходить
-        plugin.getPlayerManager().loadPlayer(event.getPlayer().getUniqueId(), event.getPlayer().getName());
+        // Завантажуємо дані гравця при вході
+        plugin.getPlayerManager().loadPlayer(event.getPlayer());
     }
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        // Зберігаємо дані та видаляємо з кешу, коли виходить
+        // Зберігаємо дані гравця та видаляємо з пам'яті при виході
         plugin.getPlayerManager().savePlayerAndRemove(event.getPlayer().getUniqueId());
     }
 }

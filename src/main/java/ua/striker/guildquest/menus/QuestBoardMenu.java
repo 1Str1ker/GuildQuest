@@ -20,52 +20,50 @@ public class QuestBoardMenu implements InventoryHolder {
 
     public QuestBoardMenu(GuildQuest plugin) {
         this.plugin = plugin;
-        // Створюємо інвентар на 54 слоти (6 рядків) із заголовком
-        this.inventory = Bukkit.createInventory(this, 54, "§8⚔ Дошка оголошень");
+        String title = plugin.getMenuConfigManager().getMenuTitle("quest-board");
+        int size = plugin.getMenuConfigManager().getMenuSize("quest-board");
+        this.inventory = Bukkit.createInventory(this, size, title);
         setupMenu();
     }
 
     private void setupMenu() {
-        // Отримуємо список відкритих квестів із бази даних
         List<Quest> openQuests = plugin.getQuestManager().getOpenQuests();
 
         int slot = 0;
-        for (Quest quest : openQuests) {
-            if (slot >= 45) break; // Залишаємо нижній рядок для системних кнопок
+        // Залишаємо нижній ряд для кнопок, тому віднімаємо 9 від загального розміру
+        int maxQuestSlots = inventory.getSize() - 9; 
 
-            // Створюємо іконку для кожного квесту (наприклад, папір або цільовий предмет)
+        for (Quest quest : openQuests) {
+            if (slot >= maxQuestSlots) break;
+
             ItemStack questIcon = new ItemStack(Material.PAPER);
             ItemMeta meta = questIcon.getItemMeta();
             if (meta != null) {
                 meta.setDisplayName("§eКонтракт #" + quest.getQuestId());
-                
                 List<String> lore = new ArrayList<>();
                 lore.add("§7Ціль: §f" + quest.getAmount() + "x " + quest.getTargetItem());
                 lore.add("§7Нагорода: §a" + quest.getReward() + " монет");
                 lore.add("");
                 lore.add("§eКлікніть, щоб прийняти!");
-                
                 meta.setLore(lore);
                 questIcon.setItemMeta(meta);
             }
-
             inventory.setItem(slot, questIcon);
             slot++;
         }
 
-        // Додаємо кнопку "Створити завдання" в слот 49 (низу по центру)
-        ItemStack createQuestBtn = new ItemStack(Material.WRITABLE_BOOK);
-        ItemMeta createMeta = createQuestBtn.getItemMeta();
-        if (createMeta != null) {
-            createMeta.setDisplayName("§a+ Створити замовлення");
-            createMeta.setLore(List.of(
-                    "§7Натисніть, щоб додати",
-                    "§7своє завдання на дошку."
-            ));
-            createQuestBtn.setItemMeta(createMeta);
-        }
-        
-        inventory.setItem(49, createQuestBtn);
+        // Динамічне завантаження кнопок із menus.yml
+        inventory.setItem(plugin.getMenuConfigManager().getItemSlot("quest-board", "hall-of-fame"), 
+                plugin.getMenuConfigManager().getConfigItem("quest-board", "hall-of-fame"));
+                
+        inventory.setItem(plugin.getMenuConfigManager().getItemSlot("quest-board", "refresh"), 
+                plugin.getMenuConfigManager().getConfigItem("quest-board", "refresh"));
+                
+        inventory.setItem(plugin.getMenuConfigManager().getItemSlot("quest-board", "create-quest"), 
+                plugin.getMenuConfigManager().getConfigItem("quest-board", "create-quest"));
+                
+        inventory.setItem(plugin.getMenuConfigManager().getItemSlot("quest-board", "active-quests"), 
+                plugin.getMenuConfigManager().getConfigItem("quest-board", "active-quests"));
     }
 
     @NotNull
