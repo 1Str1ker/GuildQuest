@@ -153,6 +153,21 @@ public class MenuListener implements Listener {
         else if (event.getInventory().getHolder() instanceof ItemSelectionMenu menu) {
             event.setCancelled(true);
             if (clickedItem.getType() != Material.AIR) {
+
+                // ==========================================
+                // БЛОК ПАГІНАЦІЇ (ПЕРЕМИКАННЯ СТОРІНОК)
+                // ==========================================
+                if (clickedItem.getType() == Material.ARROW && clickedItem.hasItemMeta()) {
+                    String displayName = clickedItem.getItemMeta().getDisplayName();
+                    if (displayName.contains("Наступна")) {
+                        player.openInventory(new ItemSelectionMenu(plugin, menu.getReward(), menu.getPage() + 1).getInventory());
+                    } else if (displayName.contains("Попередня")) {
+                        player.openInventory(new ItemSelectionMenu(plugin, menu.getReward(), menu.getPage() - 1).getInventory());
+                    }
+                    return; // Зупиняємо код, щоб стрілка не пішла далі!
+                }
+                // ==========================================
+
                 AmountSelectionMenu amountMenu = new AmountSelectionMenu(plugin, menu.getReward(), clickedItem.getType(), 1);
                 player.openInventory(amountMenu.getInventory());
             }

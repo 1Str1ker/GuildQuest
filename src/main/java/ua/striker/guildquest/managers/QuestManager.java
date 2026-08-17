@@ -15,6 +15,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -22,6 +23,7 @@ public class QuestManager {
 
     private final GuildQuest plugin;
     private final Map<Integer, Quest> questCache = new ConcurrentHashMap<>();
+    private final Set<Integer> ratedQuests = ConcurrentHashMap.newKeySet();
 
     public QuestManager(GuildQuest plugin) {
         this.plugin = plugin;
@@ -90,6 +92,21 @@ public class QuestManager {
                     int generatedId = rs.getInt(1);
                     Quest newQuest = new Quest(generatedId, creator, targetItem, amount, reward, "OPEN");
                     questCache.put(generatedId, newQuest);
+                    
+                    // Оновлюємо статистику замовника
+                    ua.striker.guildquest.models.GuildPlayer guildPlayer = plugin.getPlayerManager().getGuildPlayer(creator);
+                    if (guildPlayer != null) {
+                        guildPlayer.addCreatedQuest(); 
+                        
+                        plugin.getDatabaseManager().executeAsync(
+                            "UPDATE players SET created_quests = created_quests + 1 WHERE uuid = ?", 
+                            creator.toString()
+                        );
+                    }
+
+                    if (plugin.getHologramManager() != null) {
+                        plugin.getHologramManager().updateTopHologram(null);
+                    }
                 }
             } catch (SQLException e) {
                 plugin.getLogger().severe("Помилка при створенні квесту: " + e.getMessage());
@@ -126,7 +143,7 @@ public class QuestManager {
         }
         
         if (count >= quest.getAmount()) {
-            // 1. Забираємо предмети з інвентарю
+            // 1. Забираємо предмети
             int toRemove = quest.getAmount();
             for (ItemStack item : worker.getInventory().getContents()) {
                 if (item != null && item.getType() == mat) {
@@ -141,36 +158,48 @@ public class QuestManager {
                 }
             }
             
-            // 2. Оплата через Vault та оновлення бази даних
+            // 2. Видаємо гроші та оновлюємо статус
             GuildQuest.getEconomy().depositPlayer(worker, quest.getReward());
             quest.setStatus("COMPLETED");
             plugin.getDatabaseManager().executeAsync("UPDATE quests SET status = ? WHERE id = ?", "COMPLETED", quest.getQuestId());
             
-            // 3. Нарахування очок та статистики
+            // 3. Нарахування очок на основі конфігу
             ua.striker.guildquest.models.GuildPlayer guildPlayer = plugin.getPlayerManager().getGuildPlayer(worker.getUniqueId());
             int pointsEarned = 0;
             if (guildPlayer != null) {
-                pointsEarned = Math.max(1, (int)(quest.getReward() / 10.0));
-                guildPlayer.addPoints(pointsEarned);
+                double defaultPoints = plugin.getConfig().getDouble("points.default-points", 1.0);
+                double pointsPerItem = plugin.getConfig().getDouble("points.items." + mat.name(), defaultPoints);
+                
+                pointsEarned = (int) Math.round(pointsPerItem * quest.getAmount());
+                pointsEarned = Math.max(0, pointsEarned); // Мінімум 0 очок
+
+                if (pointsEarned > 0) {
+                    guildPlayer.addPoints(pointsEarned);
+                }
+                
                 guildPlayer.addCompletedQuest();
                 guildPlayer.setUniqueClients(guildPlayer.getUniqueClients() + 1);
             }
             
-            // 4. Оновлення голограм "Зал Слави"
+            // 4. Оновлюємо голограму
             if (plugin.getHologramManager() != null) {
                 plugin.getHologramManager().updateTopHologram(null);
             }
 
             worker.closeInventory();
             
-            // 5. Надсилаємо красиве повідомлення про успіх виконавцю
+            // 5. Повідомлення про успішне виконання
             worker.sendMessage("§a========================================");
             worker.sendMessage("§a ✔ Ви успішно виконали замовлення #" + quest.getQuestId() + "!");
             worker.sendMessage("§e 💰 Нагорода: §f" + quest.getReward() + " монет");
-            worker.sendMessage("§b 🌟 Отримано очок гільдії: §f" + pointsEarned);
+            if (pointsEarned > 0) {
+                worker.sendMessage("§b 🌟 Отримано очок гільдії: §f" + pointsEarned);
+            } else {
+                worker.sendMessage("§8 🌟 Очок за цей предмет не передбачено.");
+            }
             worker.sendMessage("§a========================================");
 
-            // 6. Створюємо клікабельне голосування в чаті для виконавця
+            // 6. Клікабельне повідомлення з оцінкою
             net.md_5.bungee.api.chat.TextComponent voteMessage = new net.md_5.bungee.api.chat.TextComponent("§e[Гільдія] Оцініть замовника: ");
             for (int i = 1; i <= 5; i++) {
                 net.md_5.bungee.api.chat.TextComponent star = new net.md_5.bungee.api.chat.TextComponent("§6[ " + i + "⭐ ] ");
@@ -186,7 +215,7 @@ public class QuestManager {
             }
             worker.spigot().sendMessage(voteMessage);
             
-            // 7. СПОВІЩЕННЯ ЗАМОВНИКА ПРО ВИКОНАННЯ
+            // 7. Сповіщення замовника
             Player creator = Bukkit.getPlayer(quest.getCreatorUuid());
             
             if (creator != null && creator.isOnline()) {
@@ -212,7 +241,15 @@ public class QuestManager {
             if (q.getStatus().equals("COMPLETED") && q.getCreatorUuid().equals(creator.getUniqueId())) {
                 Material mat = Material.matchMaterial(q.getTargetItem());
                 if (mat != null) {
-                    creator.getInventory().addItem(new ItemStack(mat, q.getAmount()));
+                    ItemStack rewardItem = new ItemStack(mat, q.getAmount());
+                    Map<Integer, ItemStack> leftover = creator.getInventory().addItem(rewardItem);
+                    
+                    if (!leftover.isEmpty()) {
+                        for (ItemStack drop : leftover.values()) {
+                            creator.getWorld().dropItemNaturally(creator.getLocation(), drop);
+                        }
+                        creator.sendMessage("§e[Гільдія] Ваш інвентар був повний, залишки ресурсів впали біля вас!");
+                    }
                 }
                 
                 plugin.getDatabaseManager().executeAsync("DELETE FROM quests WHERE id = ?", q.getQuestId());
@@ -245,7 +282,42 @@ public class QuestManager {
         }
     }
 
-    public void addReview(Player creator, int questId, UUID workerUuid, int score) {
-        creator.sendMessage("§a[Гільдія] Дякуємо за вашу оцінку!");
+    public void addReview(Player reviewer, int questId, UUID targetUuid, int score) {
+        Quest quest = questCache.get(questId);
+        
+        if (quest == null) {
+            reviewer.sendMessage("§c[Гільдія] Цього замовлення більше не існує!");
+            return;
+        }
+
+        if (quest.getWorkerUuid() == null || !quest.getWorkerUuid().equals(reviewer.getUniqueId())) {
+            reviewer.sendMessage("§c[Гільдія] Ви не можете оцінити це замовлення, бо не ви його виконували!");
+            return;
+        }
+
+        if (ratedQuests.contains(questId)) {
+            reviewer.sendMessage("§c[Гільдія] Ви вже оцінили це замовлення!");
+            return;
+        }
+
+        ua.striker.guildquest.models.GuildPlayer target = plugin.getPlayerManager().getGuildPlayer(targetUuid);
+        
+        if (target != null) {
+            double currentRating = target.getRating();
+            double newRating = (currentRating + score) / 2.0;
+            newRating = Math.round(newRating * 10.0) / 10.0;
+            
+            target.setRating(newRating);
+            plugin.getDatabaseManager().executeAsync("UPDATE players SET rating = ? WHERE uuid = ?", newRating, targetUuid.toString());
+            
+            ratedQuests.add(questId);
+            
+            reviewer.sendMessage("§a[Гільдія] Дякуємо! Ви оцінили замовника на " + score + " ⭐.");
+            
+            Player targetPlayer = Bukkit.getPlayer(targetUuid);
+            if (targetPlayer != null && targetPlayer.isOnline()) {
+                targetPlayer.sendMessage("§e🌟 [Гільдія] Виконавець оцінив вас! Ваш новий рейтинг: §6" + newRating);
+            }
+        }
     }
 }

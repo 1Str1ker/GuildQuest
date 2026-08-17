@@ -26,4 +26,4 @@ points:
 rank-system:
   # Якщо true - для підвищення рангу потрібні і очки, і унікальні замовники.
   # Якщо false - ранг підвищуватиметься ТІЛЬКИ за кількість очок (ідеально для тестів).
-  require-unique-clients: true
+  require-unique-clients: false

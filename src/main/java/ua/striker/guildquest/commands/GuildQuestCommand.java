@@ -10,11 +10,14 @@ import ua.striker.guildquest.managers.MessageManager;
 import ua.striker.guildquest.menus.ItemSelectionMenu;
 import ua.striker.guildquest.menus.QuestBoardMenu;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 public class GuildQuestCommand implements CommandExecutor {
 
     private final GuildQuest plugin;
+    private final Map<UUID, Long> cooldowns = new HashMap<>();
 
     public GuildQuestCommand(GuildQuest plugin) {
         this.plugin = plugin;
@@ -143,6 +146,15 @@ public class GuildQuestCommand implements CommandExecutor {
                 return true;
             }
             
+            long currentTime = System.currentTimeMillis();
+            if (cooldowns.containsKey(player.getUniqueId())) {
+                long timeLeft = (cooldowns.get(player.getUniqueId()) + 10000) - currentTime;
+                if (timeLeft > 0) {
+                    player.sendMessage("§c[Гільдія] Зачекайте ще " + (timeLeft / 1000) + " сек. перед створенням нового замовлення!");
+                    return true;
+                }
+            }
+            
             try {
                 double reward = Double.parseDouble(args[1]);
                 if (reward <= 0) {
@@ -155,6 +167,8 @@ public class GuildQuestCommand implements CommandExecutor {
                     player.sendMessage(msg);
                     return true;
                 }
+
+                cooldowns.put(player.getUniqueId(), currentTime);
 
                 ItemSelectionMenu menu = new ItemSelectionMenu(plugin, reward);
                 player.openInventory(menu.getInventory());
@@ -170,16 +184,24 @@ public class GuildQuestCommand implements CommandExecutor {
             return true;
         }
 
-        if (args[0].equalsIgnoreCase("rate")) {
-            if (args.length < 4) return true;
+        if (args[0].equalsIgnoreCase("review") || args[0].equalsIgnoreCase("rate")) {
+            if (args.length < 4) {
+                player.sendMessage("§c[Гільдія] Неправильний формат команди оцінки.");
+                return true;
+            }
             try {
                 int questId = Integer.parseInt(args[1]);
-                UUID workerUuid = UUID.fromString(args[2]);
+                UUID targetUuid = UUID.fromString(args[2]);
                 int score = Integer.parseInt(args[3]);
+                
                 if (score >= 1 && score <= 5) {
-                    plugin.getQuestManager().addReview(player, questId, workerUuid, score);
+                    plugin.getQuestManager().addReview(player, questId, targetUuid, score);
+                } else {
+                    player.sendMessage("§c[Гільдія] Оцінка має бути від 1 до 5!");
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                player.sendMessage("§c[Гільдія] Сталася помилка при спробі оцінити гравця.");
+            }
             return true;
         }
 
@@ -187,7 +209,7 @@ public class GuildQuestCommand implements CommandExecutor {
             if (player.hasPermission("guildquest.admin")) {
                 plugin.getConfigManager().reloadConfig();
                 plugin.getMessageManager().loadMessages();
-                plugin.getMenuConfigManager().loadMenus(); // ОНОВЛЕНО: Тепер меню також перезавантажуються!
+                plugin.getMenuConfigManager().loadMenus();
                 player.sendMessage(msgManager.getMessage("reload-success"));
             } else {
                 player.sendMessage(msgManager.getMessage("no-permission"));

@@ -2,46 +2,93 @@ package ua.striker.guildquest.menus;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.jetbrains.annotations.NotNull;
 import ua.striker.guildquest.GuildQuest;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 public class ItemSelectionMenu implements InventoryHolder {
+
     private final Inventory inventory;
     private final double reward;
+    private final int page;
 
-    public ItemSelectionMenu(GuildQuest plugin, double reward) {
+    public ItemSelectionMenu(GuildQuest plugin, double reward, int page) {
         this.reward = reward;
-        this.inventory = Bukkit.createInventory(this, 54, "§8Оберіть предмет");
+        this.page = page;
         
-        Set<String> items = plugin.getConfigManager().getConfiguredItems();
+        this.inventory = Bukkit.createInventory(this, 54, "§8Виберіть предмет (Стор. " + (page + 1) + ")");
+
+        // Читаємо саме твій розділ з конфігу
+        ConfigurationSection section = plugin.getConfig().getConfigurationSection("points.items");
+        if (section == null) return;
+        
+        List<String> materials = new ArrayList<>(section.getKeys(false));
+        double defaultPoints = plugin.getConfig().getDouble("points.default-points", 1.0);
+        
+        int maxItemsPerPage = 45;
+        int startIndex = page * maxItemsPerPage;
+        int endIndex = Math.min(startIndex + maxItemsPerPage, materials.size());
+        
         int slot = 0;
-        
-        for (String itemName : items) {
-            if (slot >= 53) break;
-            Material mat = Material.matchMaterial(itemName);
+        for (int i = startIndex; i < endIndex; i++) {
+            String matName = materials.get(i);
+            Material mat = Material.matchMaterial(matName.toUpperCase());
+            
             if (mat != null && mat != Material.AIR) {
+                double pointsPerItem = section.getDouble(matName, defaultPoints);
+                
                 ItemStack item = new ItemStack(mat);
                 ItemMeta meta = item.getItemMeta();
                 if (meta != null) {
-                    meta.setLore(List.of("§7Натисніть, щоб обрати цей", "§7предмет для замовлення."));
+                    meta.setDisplayName("§a" + mat.toString().replace("_", " "));
+                    List<String> lore = new ArrayList<>();
+                    lore.add("§7Натисніть, щоб створити замовлення.");
+                    lore.add("");
+                    lore.add("§e💰 Нагорода: §f" + reward);
+                    lore.add("§b🌟 Очок за 1 шт: §f" + pointsPerItem);
+                    meta.setLore(lore);
                     item.setItemMeta(meta);
                 }
                 inventory.setItem(slot, item);
                 slot++;
             }
         }
+        
+        if (page > 0) {
+            inventory.setItem(45, createNavButton(Material.ARROW, "§c⬅ Попередня сторінка"));
+        }
+        
+        if (endIndex < materials.size()) {
+            inventory.setItem(53, createNavButton(Material.ARROW, "§aНаступна сторінка ➡"));
+        }
     }
 
-    public double getReward() { return reward; }
+    private ItemStack createNavButton(Material mat, String name) {
+        ItemStack item = new ItemStack(mat);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(name);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
 
-    @NotNull
     @Override
-    public Inventory getInventory() { return inventory; }
+    public Inventory getInventory() {
+        return inventory;
+    }
+    
+    public double getReward() {
+        return reward;
+    }
+    
+    public int getPage() {
+        return page;
+    }
 }

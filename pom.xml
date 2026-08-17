@@ -6,7 +6,7 @@
 
     <groupId>ua.striker</groupId>
     <artifactId>GuildQuest</artifactId>
-    <version>1.4</version> <!-- Оновили версію до 1.4! -->
+    <version>1.4.3</version> <!-- Оновили версію до 1.4! -->
     <packaging>jar</packaging>
 
     <name>GuildQuest</name>

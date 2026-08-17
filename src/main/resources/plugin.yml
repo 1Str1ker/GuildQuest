@@ -1,5 +1,5 @@
 name: GuildQuest
-version: '1.4'
+version: '1.4.3'
 main: ua.striker.guildquest.GuildQuest
 api-version: '1.21'
 depend: [PlaceholderAPI, Vault]
