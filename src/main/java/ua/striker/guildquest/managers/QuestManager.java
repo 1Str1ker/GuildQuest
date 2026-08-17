@@ -3,6 +3,7 @@ package ua.striker.guildquest.managers;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import ua.striker.guildquest.GuildQuest;
@@ -20,8 +21,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public class QuestManager {
 
     private final GuildQuest plugin;
-    
-    // Кеш для квестів: швидкий доступ без лагів + безпека для потоків
     private final Map<Integer, Quest> questCache = new ConcurrentHashMap<>();
 
     public QuestManager(GuildQuest plugin) {
@@ -29,7 +28,6 @@ public class QuestManager {
         loadQuestsAsync();
     }
 
-    // Завантажуємо всі квести з бази у фоновому режимі при старті
     private void loadQuestsAsync() {
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             try (PreparedStatement ps = plugin.getDatabaseManager().getConnection().prepareStatement("SELECT * FROM quests")) {
@@ -77,7 +75,6 @@ public class QuestManager {
     }
 
     public void createQuest(UUID creator, String targetItem, int amount, double reward) {
-        // Записуємо в БД асинхронно, щоб отримати унікальний ID, і одразу додаємо в кеш
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             String query = "INSERT INTO quests (creator, target_item, amount, reward, status) VALUES (?, ?, ?, ?, ?)";
             try (PreparedStatement ps = plugin.getDatabaseManager().getConnection().prepareStatement(query, java.sql.Statement.RETURN_GENERATED_KEYS)) {
@@ -110,7 +107,6 @@ public class QuestManager {
             quest.setStatus("IN_PROGRESS");
             quest.setWorkerUuid(worker.getUniqueId());
             
-            // Асинхронне оновлення бази
             plugin.getDatabaseManager().executeAsync("UPDATE quests SET status = ?, worker = ? WHERE id = ?", 
                     "IN_PROGRESS", worker.getUniqueId().toString(), questId);
             
@@ -130,6 +126,7 @@ public class QuestManager {
         }
         
         if (count >= quest.getAmount()) {
+            // 1. Забираємо предмети з інвентарю
             int toRemove = quest.getAmount();
             for (ItemStack item : worker.getInventory().getContents()) {
                 if (item != null && item.getType() == mat) {
@@ -144,11 +141,64 @@ public class QuestManager {
                 }
             }
             
+            // 2. Оплата через Vault та оновлення бази даних
             GuildQuest.getEconomy().depositPlayer(worker, quest.getReward());
             quest.setStatus("COMPLETED");
             plugin.getDatabaseManager().executeAsync("UPDATE quests SET status = ? WHERE id = ?", "COMPLETED", quest.getQuestId());
             
-            worker.sendMessage("§a[Гільдія] Ви виконали замовлення та отримали " + quest.getReward() + " монет!");
+            // 3. Нарахування очок та статистики
+            ua.striker.guildquest.models.GuildPlayer guildPlayer = plugin.getPlayerManager().getGuildPlayer(worker.getUniqueId());
+            int pointsEarned = 0;
+            if (guildPlayer != null) {
+                pointsEarned = Math.max(1, (int)(quest.getReward() / 10.0));
+                guildPlayer.addPoints(pointsEarned);
+                guildPlayer.addCompletedQuest();
+                guildPlayer.setUniqueClients(guildPlayer.getUniqueClients() + 1);
+            }
+            
+            // 4. Оновлення голограм "Зал Слави"
+            if (plugin.getHologramManager() != null) {
+                plugin.getHologramManager().updateTopHologram(null);
+            }
+
+            worker.closeInventory();
+            
+            // 5. Надсилаємо красиве повідомлення про успіх виконавцю
+            worker.sendMessage("§a========================================");
+            worker.sendMessage("§a ✔ Ви успішно виконали замовлення #" + quest.getQuestId() + "!");
+            worker.sendMessage("§e 💰 Нагорода: §f" + quest.getReward() + " монет");
+            worker.sendMessage("§b 🌟 Отримано очок гільдії: §f" + pointsEarned);
+            worker.sendMessage("§a========================================");
+
+            // 6. Створюємо клікабельне голосування в чаті для виконавця
+            net.md_5.bungee.api.chat.TextComponent voteMessage = new net.md_5.bungee.api.chat.TextComponent("§e[Гільдія] Оцініть замовника: ");
+            for (int i = 1; i <= 5; i++) {
+                net.md_5.bungee.api.chat.TextComponent star = new net.md_5.bungee.api.chat.TextComponent("§6[ " + i + "⭐ ] ");
+                star.setClickEvent(new net.md_5.bungee.api.chat.ClickEvent(
+                        net.md_5.bungee.api.chat.ClickEvent.Action.RUN_COMMAND, 
+                        "/gq review " + quest.getQuestId() + " " + quest.getCreatorUuid().toString() + " " + i
+                ));
+                star.setHoverEvent(new net.md_5.bungee.api.chat.HoverEvent(
+                        net.md_5.bungee.api.chat.HoverEvent.Action.SHOW_TEXT, 
+                        new net.md_5.bungee.api.chat.hover.content.Text("§aПоставити " + i + " зірок!")
+                ));
+                voteMessage.addExtra(star);
+            }
+            worker.spigot().sendMessage(voteMessage);
+            
+            // 7. СПОВІЩЕННЯ ЗАМОВНИКА ПРО ВИКОНАННЯ
+            Player creator = Bukkit.getPlayer(quest.getCreatorUuid());
+            
+            if (creator != null && creator.isOnline()) {
+                creator.sendMessage("§6========================================");
+                creator.sendMessage("§e🔔 [Гільдія] Ваше замовлення #" + quest.getQuestId() + " виконано!");
+                creator.sendMessage("§fГравець §a" + worker.getName() + " §fзібрав необхідні ресурси.");
+                creator.sendMessage("§fПропишіть §e/gq collect§f, щоб забрати їх у свій інвентар!");
+                creator.sendMessage("§6========================================");
+                
+                creator.playSound(creator.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
+            }
+            
         } else {
             worker.sendMessage("§c[Гільдія] У вас недостатньо предметів (" + count + "/" + quest.getAmount() + ").");
         }
@@ -173,7 +223,6 @@ public class QuestManager {
             }
         }
 
-        // Очищаємо кеш після циклу
         for (int id : toRemove) questCache.remove(id);
 
         if (!collected) {
@@ -182,7 +231,7 @@ public class QuestManager {
     }
 
     public void deleteQuestAdmin(Player admin, int questId) {
-        Quest quest = questCache.remove(questId); // Одразу видаляємо з кешу
+        Quest quest = questCache.remove(questId);
         if (quest != null) {
             plugin.getDatabaseManager().executeAsync("DELETE FROM quests WHERE id = ?", questId);
             

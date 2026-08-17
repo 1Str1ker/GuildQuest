@@ -14,7 +14,6 @@ ua/striker/guildquest/menus/TopClientsMenu.class
 ua/striker/guildquest/hooks/GuildQuestExpansion.class
 ua/striker/guildquest/menus/ActiveQuestsMenu.class
 ua/striker/guildquest/menus/ItemSelectionMenu.class
-ua/striker/guildquest/models/Quest$QuestStatus.class
 ua/striker/guildquest/managers/MenuConfigManager.class
 ua/striker/guildquest/models/Quest.class
 ua/striker/guildquest/menus/TopAdventurersMenu.class

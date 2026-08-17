@@ -1,33 +1,30 @@
 package ua.striker.guildquest.managers;
 
 import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import ua.striker.guildquest.GuildQuest;
+import ua.striker.guildquest.models.GuildPlayer;
+import ua.striker.guildquest.models.GuildRank;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 public class PlayerManager {
 
     private final GuildQuest plugin;
-    
-    // Кеш для миттєвого доступу без створення лагів (TPS drops)
-    private final Map<UUID, Integer> pointsCache = new HashMap<>();
-    private final Map<UUID, String> rankCache = new HashMap<>();
-    private final Map<UUID, Double> ratingCache = new HashMap<>();
+    private final Map<UUID, GuildPlayer> playerCache = new ConcurrentHashMap<>();
 
     public PlayerManager(GuildQuest plugin) {
         this.plugin = plugin;
     }
 
-    /**
-     * Асинхронне завантаження гравця при вході на сервер.
-     * Запускається в окремому потоці.
-     */
     public void loadPlayer(UUID uuid) {
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             try (PreparedStatement ps = plugin.getDatabaseManager().getConnection().prepareStatement("SELECT * FROM players WHERE uuid = ?")) {
@@ -35,16 +32,36 @@ public class PlayerManager {
                 ResultSet rs = ps.executeQuery();
                 
                 if (rs.next()) {
-                    pointsCache.put(uuid, rs.getInt("points"));
-                    rankCache.put(uuid, rs.getString("rank"));
-                    ratingCache.put(uuid, rs.getDouble("rating"));
+                    String name = rs.getString("name");
+                    if (name == null) name = Bukkit.getOfflinePlayer(uuid).getName();
+                    
+                    GuildRank rank;
+                    try {
+                        rank = GuildRank.valueOf(rs.getString("rank"));
+                    } catch (IllegalArgumentException e) {
+                        rank = GuildRank.values()[0]; // Запобіжник, якщо ранг було змінено
+                    }
+                    
+                    int points = rs.getInt("points");
+                    double money = rs.getDouble("money");
+                    int completedQuests = rs.getInt("completed_quests");
+                    double rating = rs.getDouble("rating");
+                    int uniqueClients = rs.getInt("unique_clients");
+                    int createdQuests = rs.getInt("created_quests");
+
+                    GuildPlayer gp = new GuildPlayer(uuid, name, rank, points, money, completedQuests, rating, uniqueClients, createdQuests);
+                    playerCache.put(uuid, gp);
                 } else {
-                    // Якщо гравець новий, записуємо його в БД асинхронно і додаємо в кеш
-                    pointsCache.put(uuid, 0);
-                    rankCache.put(uuid, "BRONZE");
-                    ratingCache.put(uuid, 5.0);
-                    plugin.getDatabaseManager().executeAsync("INSERT INTO players (uuid, points, rank, rating) VALUES (?, ?, ?, ?)", 
-                        uuid.toString(), 0, "BRONZE", 5.0);
+                    String name = Bukkit.getOfflinePlayer(uuid).getName();
+                    GuildRank startingRank = GuildRank.values()[0]; // Автоматично беремо найнижчий початковий ранг
+                    
+                    GuildPlayer gp = new GuildPlayer(uuid, name, startingRank, 0, 0.0, 0, 5.0, 0, 0);
+                    playerCache.put(uuid, gp);
+                    
+                    plugin.getDatabaseManager().executeAsync(
+                        "INSERT INTO players (uuid, name, points, rank, money, completed_quests, rating, unique_clients, created_quests) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+                        uuid.toString(), name, 0, startingRank.name(), 0.0, 0, 5.0, 0, 0
+                    );
                 }
             } catch (SQLException e) {
                 plugin.getLogger().severe("Помилка завантаження гравця: " + e.getMessage());
@@ -52,33 +69,49 @@ public class PlayerManager {
         });
     }
 
-    /**
-     * Асинхронне збереження гравця при виході.
-     */
     public void savePlayerAndRemove(UUID uuid) {
-        if (!pointsCache.containsKey(uuid)) return;
-        
-        // Відправляємо фоновий запит на оновлення
-        plugin.getDatabaseManager().executeAsync("UPDATE players SET points = ?, rank = ?, rating = ? WHERE uuid = ?",
-                pointsCache.get(uuid), rankCache.get(uuid), ratingCache.get(uuid), uuid.toString());
-                
-        // Очищаємо оперативну пам'ять
-        pointsCache.remove(uuid);
-        rankCache.remove(uuid);
-        ratingCache.remove(uuid);
+        GuildPlayer gp = playerCache.remove(uuid);
+        if (gp != null) {
+            plugin.getDatabaseManager().executeAsync(
+                "UPDATE players SET points = ?, rank = ?, money = ?, completed_quests = ?, rating = ?, unique_clients = ?, created_quests = ? WHERE uuid = ?",
+                gp.getPoints(), gp.getRank().name(), gp.getMoney(), gp.getCompletedQuests(), gp.getRating(), gp.getUniqueClients(), gp.getCreatedQuests(), uuid.toString()
+            );
+        }
     }
 
+    public GuildPlayer getGuildPlayer(UUID uuid) {
+        return playerCache.get(uuid);
+    }
+
+    public void updateRankInDatabase(UUID uuid, GuildRank rank) {
+        plugin.getDatabaseManager().executeAsync("UPDATE players SET rank = ? WHERE uuid = ?", rank.name(), uuid.toString());
+    }
+
+    public List<GuildPlayer> getTopAdventurers(int limit) {
+        return playerCache.values().stream()
+                .sorted((p1, p2) -> Integer.compare(p2.getPoints(), p1.getPoints()))
+                .limit(limit)
+                .collect(Collectors.toList());
+    }
+
+    public List<GuildPlayer> getTopClients(int limit) {
+        return playerCache.values().stream()
+                .sorted((p1, p2) -> Integer.compare(p2.getCreatedQuests(), p1.getCreatedQuests()))
+                .limit(limit)
+                .collect(Collectors.toList());
+    }
+
+    // --- ВІДНОВЛЕНІ МЕТОДИ АДМІНІСТРАТОРА ---
+    
     public void modifyPointsAdmin(Player admin, String targetName, int amount, boolean add) {
         Player target = Bukkit.getPlayerExact(targetName);
         if (target != null) {
-            UUID uuid = target.getUniqueId();
-            int currentPoints = pointsCache.getOrDefault(uuid, 0);
-            int newPoints = add ? currentPoints + amount : Math.max(0, currentPoints - amount);
-            pointsCache.put(uuid, newPoints);
-            
-            // Зберігаємо асинхронно
-            plugin.getDatabaseManager().executeAsync("UPDATE players SET points = ? WHERE uuid = ?", newPoints, uuid.toString());
-            admin.sendMessage("§a[Гільдія] Очки гравця " + targetName + " оновлено!");
+            GuildPlayer gp = playerCache.get(target.getUniqueId());
+            if (gp != null) {
+                gp.addPoints(add ? amount : -amount);
+                plugin.getDatabaseManager().executeAsync("UPDATE players SET points = ? WHERE uuid = ?", gp.getPoints(), gp.getUuid().toString());
+                admin.sendMessage("§a[Гільдія] Очки гравця " + targetName + " оновлено!");
+            }
         } else {
             admin.sendMessage("§c[Гільдія] Гравець не знайдений або офлайн!");
         }
@@ -87,12 +120,17 @@ public class PlayerManager {
     public void setRankAdmin(Player admin, String targetName, String rankName) {
         Player target = Bukkit.getPlayerExact(targetName);
         if (target != null) {
-            UUID uuid = target.getUniqueId();
-            rankCache.put(uuid, rankName);
-            
-            // Зберігаємо асинхронно
-            plugin.getDatabaseManager().executeAsync("UPDATE players SET rank = ? WHERE uuid = ?", rankName, uuid.toString());
-            admin.sendMessage("§a[Гільдія] Ранг гравця " + targetName + " змінено на " + rankName + "!");
+            try {
+                GuildRank rank = GuildRank.valueOf(rankName.toUpperCase());
+                GuildPlayer gp = playerCache.get(target.getUniqueId());
+                if (gp != null) {
+                    gp.setRank(rank);
+                    plugin.getDatabaseManager().executeAsync("UPDATE players SET rank = ? WHERE uuid = ?", rank.name(), gp.getUuid().toString());
+                    admin.sendMessage("§a[Гільдія] Ранг гравця " + targetName + " змінено на " + rank.name() + "!");
+                }
+            } catch (IllegalArgumentException e) {
+                admin.sendMessage("§c[Гільдія] Невідомий ранг! Перевірте правильність написання.");
+            }
         } else {
             admin.sendMessage("§c[Гільдія] Гравець не знайдений або офлайн!");
         }
@@ -101,19 +139,14 @@ public class PlayerManager {
     public void setRatingAdmin(Player admin, String targetName, double rating) {
         Player target = Bukkit.getPlayerExact(targetName);
         if (target != null) {
-            UUID uuid = target.getUniqueId();
-            ratingCache.put(uuid, rating);
-            
-            // Зберігаємо асинхронно
-            plugin.getDatabaseManager().executeAsync("UPDATE players SET rating = ? WHERE uuid = ?", rating, uuid.toString());
-            admin.sendMessage("§a[Гільдія] Рейтинг гравця " + targetName + " змінено на " + rating + "!");
+            GuildPlayer gp = playerCache.get(target.getUniqueId());
+            if (gp != null) {
+                gp.setRating(rating);
+                plugin.getDatabaseManager().executeAsync("UPDATE players SET rating = ? WHERE uuid = ?", rating, gp.getUuid().toString());
+                admin.sendMessage("§a[Гільдія] Рейтинг гравця " + targetName + " змінено на " + rating + "!");
+            }
         } else {
             admin.sendMessage("§c[Гільдія] Гравець не знайдений або офлайн!");
         }
     }
-
-    // Швидкі геттери, які миттєво беруть дані з оперативної пам'яті (кешу)
-    public int getPoints(UUID uuid) { return pointsCache.getOrDefault(uuid, 0); }
-    public String getRank(UUID uuid) { return rankCache.getOrDefault(uuid, "BRONZE"); }
-    public double getRating(UUID uuid) { return ratingCache.getOrDefault(uuid, 5.0); }
 }

@@ -27,7 +27,6 @@ public class DatabaseManager {
             }
             File databaseFile = new File(dataFolder, "database.db");
             
-            // Підключення до SQLite
             connection = DriverManager.getConnection("jdbc:sqlite:" + databaseFile.getAbsolutePath());
             createTables();
             plugin.getLogger().info("Базу даних успішно підключено!");
@@ -52,7 +51,6 @@ public class DatabaseManager {
     }
 
     private void createTables() {
-        // Створення таблиць виконується синхронно лише під час увімкнення плагіна
         String quests = "CREATE TABLE IF NOT EXISTS quests (" +
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
                 "creator VARCHAR(36) NOT NULL, " +
@@ -62,11 +60,17 @@ public class DatabaseManager {
                 "status VARCHAR(20) NOT NULL, " +
                 "worker VARCHAR(36));";
 
+        // Оновлена таблиця гравців (додані всі параметри з твого GuildPlayer)
         String players = "CREATE TABLE IF NOT EXISTS players (" +
                 "uuid VARCHAR(36) PRIMARY KEY, " +
+                "name VARCHAR(16), " +
                 "points INTEGER DEFAULT 0, " +
                 "rank VARCHAR(20) DEFAULT 'BRONZE', " +
-                "rating DOUBLE DEFAULT 5.0);";
+                "money DOUBLE DEFAULT 0.0, " +
+                "completed_quests INTEGER DEFAULT 0, " +
+                "rating DOUBLE DEFAULT 5.0, " +
+                "unique_clients INTEGER DEFAULT 0, " +
+                "created_quests INTEGER DEFAULT 0);";
 
         try (Statement statement = connection.createStatement()) {
             statement.execute(quests);
@@ -76,10 +80,6 @@ public class DatabaseManager {
         }
     }
 
-    /**
-     * НОВИЙ МЕТОД: Асинхронне виконання запитів (INSERT, UPDATE, DELETE).
-     * Використовує фоновий потік сервера, щоб не створювати лагів для гравців.
-     */
     public void executeAsync(String query, Object... params) {
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             try (PreparedStatement ps = connection.prepareStatement(query)) {
