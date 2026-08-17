@@ -170,7 +170,7 @@ public class GuildQuestCommand implements CommandExecutor {
 
                 cooldowns.put(player.getUniqueId(), currentTime);
 
-                ItemSelectionMenu menu = new ItemSelectionMenu(plugin, reward);
+                ItemSelectionMenu menu = new ItemSelectionMenu(plugin, reward, 0);
                 player.openInventory(menu.getInventory());
                 
             } catch (NumberFormatException e) {
